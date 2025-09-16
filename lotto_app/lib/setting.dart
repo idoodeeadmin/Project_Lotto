@@ -3,6 +3,9 @@ import 'home.dart';
 import 'mylotto.dart';
 import 'login.dart';
 import 'random.dart';
+import 'package:http/http.dart' as http;
+import 'config.dart';
+import 'dart:convert';
 
 class SettingPage extends StatelessWidget {
   final String fullname;
@@ -96,8 +99,48 @@ class SettingPage extends StatelessWidget {
                     }),
 
                     const Divider(height: 1, color: Colors.grey),
-                    _menuItem(context, "รีเซ็ตระบบ", () {
-                      //ฟังก์ชันรีเซ็ตระบบ
+                    _menuItem(context, "รีเซ็ตระบบ", () async {
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text("ยืนยัน"),
+                          content: const Text(
+                            "คุณต้องการรีเซ็ตระบบใช่หรือไม่?",
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context, false),
+                              child: const Text("ยกเลิก"),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.pop(context, true),
+                              child: const Text("ยืนยัน"),
+                            ),
+                          ],
+                        ),
+                      );
+
+                      if (confirm != true) return;
+
+                      try {
+                        final response = await http.post(
+                          Uri.parse("${AppConfig.apiEndpoint}/reset-system"),
+                        );
+                        if (response.statusCode == 200) {
+                          final data = jsonDecode(response.body);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(data['message'])),
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("รีเซ็ตระบบล้มเหลว")),
+                          );
+                        }
+                      } catch (e) {
+                        ScaffoldMessenger.of(
+                          context,
+                        ).showSnackBar(SnackBar(content: Text("Error: $e")));
+                      }
                     }),
                     const Divider(height: 1, color: Colors.grey),
                   ],
