@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'home.dart';
 import 'register.dart';
 import 'config.dart';
+import 'model/login_model.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -24,32 +25,42 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    var data = {"email": emailCtl.text, "password": passCtl.text};
+    final loginRequest = LoginRequest(
+      email: emailCtl.text,
+      password: passCtl.text,
+    );
 
     try {
       var url = Uri.parse("${AppConfig.apiEndpoint}/login");
       var response = await http.post(
         url,
         headers: {"Content-Type": "application/json; charset=utf-8"},
-        body: jsonEncode(data),
+        body: jsonEncode(loginRequest.toJson()),
       );
 
       if (response.statusCode == 200) {
-        var res = jsonDecode(response.body);
-        var user = res["user"];
-        String fullname = user["fullname"];
-        String role = user["role"];
+        final loginRes = loginResponseFromJson(response.body);
 
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("ยินดีต้อนรับ $fullname")));
+        if (loginRes.customer != null) {
+          final Customer customer = loginRes.customer!;
 
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => HomePage(fullname: fullname, role: role),
-          ),
-        );
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("ยินดีต้อนรับ ${customer.fullname}")),
+          );
+
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => HomePage(customer: customer),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("เข้าสู่ระบบไม่สำเร็จ: ${loginRes.message}"),
+            ),
+          );
+        }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("เข้าสู่ระบบไม่สำเร็จ: ${response.body}")),
@@ -73,7 +84,6 @@ class _LoginPageState extends State<LoginPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // ปุ่มสมัครสมาชิก
                 Align(
                   alignment: Alignment.centerRight,
                   child: ElevatedButton(
@@ -96,8 +106,6 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                 ),
                 const SizedBox(height: 16),
-
-                // โลโก้ตรงกลาง
                 Center(
                   child: Image.asset(
                     'lib/assets/logo.webp',
@@ -106,8 +114,6 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                 ),
                 const SizedBox(height: 10),
-
-                // Email
                 const Text(
                   'Email',
                   style: TextStyle(color: Colors.white, fontSize: 16),
@@ -125,8 +131,6 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                 ),
                 const SizedBox(height: 20),
-
-                // Password
                 const Text(
                   'Password',
                   style: TextStyle(color: Colors.white, fontSize: 16),
@@ -145,15 +149,12 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                 ),
                 const SizedBox(height: 30),
-
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     const SizedBox(width: 12),
                     TextButton(
-                      onPressed: () {
-                        //ไว้ก่อน
-                      },
+                      onPressed: () {},
                       child: const Text(
                         'ลืมรหัสผ่าน?',
                         style: TextStyle(

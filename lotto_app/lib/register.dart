@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'login.dart';
 import 'config.dart';
+import 'model/regis_model.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -29,27 +30,32 @@ class _RegisterPageState extends State<RegisterPage> {
       return;
     }
 
-    var data = {
-      "fullname": nameCtl.text,
-      "phone": phoneCtl.text,
-      "email": emailCtl.text,
-      "password": passCtl.text,
-      "wallet_balance": double.tryParse(walletCtl.text) ?? 0,
-      "role": "user",
-    };
+    // ✅ 1. สร้าง Request ด้วย Model
+    final request = RegisterRequest(
+      fullname: nameCtl.text,
+      phone: phoneCtl.text,
+      email: emailCtl.text,
+      password: passCtl.text,
+      walletBalance: double.tryParse(walletCtl.text) ?? 0,
+    );
 
     try {
-      var url = Uri.parse("${AppConfig.apiEndpoint}/register");
-      var response = await http.post(
+      final url = Uri.parse("${AppConfig.apiEndpoint}/register");
+
+      // ✅ 2. ส่งข้อมูลโดยใช้ request.toJson()
+      final response = await http.post(
         url,
         headers: {"Content-Type": "application/json; charset=utf-8"},
-        body: jsonEncode(data),
+        body: jsonEncode(request.toJson()),
       );
 
       if (response.statusCode == 201) {
+        final registerRes = registerResponseFromJson(response.body);
+
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text("สมัครสมาชิกสำเร็จ")));
+        ).showSnackBar(SnackBar(content: Text(registerRes.message)));
+
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const LoginPage()),

@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import 'Buy.dart';
+import 'buy.dart';
 import 'mylotto.dart';
 import 'setting.dart';
+import 'model/login_model.dart';
 
 class HomePage extends StatelessWidget {
-  final String role; // "admin" หรือ "user"
-  final String fullname; // ชื่อผู้ใช้
+  final Customer customer;
 
-  const HomePage({super.key, required this.role, required this.fullname});
+  const HomePage({super.key, required this.customer});
 
   @override
   Widget build(BuildContext context) {
@@ -22,28 +22,29 @@ class HomePage extends StatelessWidget {
               const SizedBox(height: 20),
               Align(
                 alignment: Alignment.topRight,
-                child: SizedBox(
-                  child: Image.asset(
-                    'lib/assets/logo.webp',
-                    width: 120,
-                    height: 100,
-                  ),
+                child: Image.asset(
+                  'lib/assets/logo.webp',
+                  width: 120,
+                  height: 100,
                 ),
               ),
               const SizedBox(height: 10),
-              const Text(
-                'ล็อตเตอรี่เลขเด็ด',
-                style: TextStyle(
+              Text(
+                'สวัสดี, ${customer.fullname}',
+                style: const TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),
               ),
-              const Text(
-                'หวยงวดถัดไป 1 ส.ค. 2568',
-                style: TextStyle(fontSize: 16, color: Colors.white70),
+              const SizedBox(height: 5),
+              Text(
+                customer.role == 'admin' ? 'ผู้ดูแลระบบ' : 'ผู้ใช้งานทั่วไป',
+                style: const TextStyle(fontSize: 16, color: Colors.white70),
               ),
               const SizedBox(height: 20),
+
+              // Highlight Boxes
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: List.generate(
@@ -67,6 +68,7 @@ class HomePage extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 20),
+
               // My Wallet + Buy Lotto
               Container(
                 padding: const EdgeInsets.all(16),
@@ -90,63 +92,55 @@ class HomePage extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 10),
-                        const Column(
+                        Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
+                            const Text(
                               'My Wallet',
                               style: TextStyle(fontWeight: FontWeight.bold),
                             ),
                             Text(
-                              '฿ 1,000.00',
-                              style: TextStyle(color: Colors.green),
+                              '฿ ${customer.walletBalance.toStringAsFixed(2)}',
+                              style: const TextStyle(color: Colors.green),
                             ),
                           ],
                         ),
                       ],
                     ),
-                    // Buy Lotto Button -> Navigate to BuyPage
-                    Expanded(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          InkWell(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => const BuyPage(),
-                                ),
-                              );
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.orangeAccent,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Row(
-                                children: const [
-                                  Icon(
-                                    Icons.confirmation_number,
-                                    color: Colors.white,
-                                  ),
-                                  SizedBox(width: 6),
-                                  Text(
-                                    'ซื้อลอตเตอรี่',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
+                    InkWell(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => BuyPage(customer: customer),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.orangeAccent,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: const [
+                            Icon(
+                              Icons.confirmation_number,
+                              color: Colors.white,
+                            ),
+                            SizedBox(width: 6),
+                            Text(
+                              'ซื้อลอตเตอรี่',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -154,6 +148,7 @@ class HomePage extends StatelessWidget {
               ),
               const SizedBox(height: 20),
 
+              // ผลสลากกินแบ่งรัฐบาล (ตัวอย่าง)
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -171,6 +166,7 @@ class HomePage extends StatelessWidget {
                       ),
                     ),
                     SizedBox(height: 8),
+                    // ตัวเลขรางวัลตัวอย่าง
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -301,9 +297,7 @@ class HomePage extends StatelessWidget {
             onTap: () {
               Navigator.pushReplacement(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => HomePage(role: role, fullname: fullname),
-                ),
+                MaterialPageRoute(builder: (_) => HomePage(customer: customer)),
               );
             },
             child: Column(
@@ -318,13 +312,13 @@ class HomePage extends StatelessWidget {
               ],
             ),
           ),
-
+          // MyLotto
           InkWell(
             onTap: () {
               Navigator.pushReplacement(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => MyLottoPage(role: role, fullname: fullname),
+                  builder: (_) => MyLottoPage(customer: customer),
                 ),
               );
             },
@@ -340,20 +334,20 @@ class HomePage extends StatelessWidget {
               ],
             ),
           ),
-
+          // Setting
           InkWell(
             onTap: () {
               Navigator.pushReplacement(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => SettingPage(role: role, fullname: fullname),
+                  builder: (_) => SettingPage(customer: customer),
                 ),
               );
             },
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: const [
-                Icon(Icons.person, color: Colors.grey),
+                Icon(Icons.settings, color: Colors.grey),
                 SizedBox(height: 4),
                 Text(
                   'Setting',

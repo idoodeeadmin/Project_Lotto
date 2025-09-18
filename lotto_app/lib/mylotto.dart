@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'home.dart';
 import 'setting.dart';
+import 'model/login_model.dart';
 
 class MyLottoPage extends StatelessWidget {
-  final String role;
-  final String fullname;
+  final Customer customer;
 
-  const MyLottoPage({super.key, required this.role, required this.fullname});
+  const MyLottoPage({super.key, required this.customer});
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +30,7 @@ class MyLottoPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: Text('My Lotto - $fullname'),
+        title: Text('My Lotto - ${customer.fullname}'),
         titleTextStyle: const TextStyle(
           fontWeight: FontWeight.bold,
           fontSize: 20,
@@ -156,32 +156,6 @@ class MyLottoPage extends StatelessWidget {
                                 color: Colors.black54,
                               ),
                             ),
-                            const SizedBox(height: 8),
-                            // ปุ่มขึ้นเงินเฉพาะงวดที่ประกาศผล
-                            //   if (isResultAnnounced)
-                            //     Align(
-                            //       alignment: Alignment.centerRight,
-                            //       child: ElevatedButton(
-                            //         onPressed: () {
-                            //           print("ขึ้นเงินรางวัล $number");
-                            //         },
-                            //         style: ElevatedButton.styleFrom(
-                            //           backgroundColor: const Color.fromARGB(
-                            //             255,
-                            //             192,
-                            //             192,
-                            //             191,
-                            //           ),
-                            //         ),
-                            //         child: const Text(
-                            //           'ขึ้นเงินรางวัล',
-                            //           style: TextStyle(
-                            //             fontWeight: FontWeight.bold,
-                            //             color: Colors.black,
-                            //           ),
-                            //         ),
-                            //       ),
-                            //     ),
                           ],
                         ),
                       );
@@ -211,9 +185,7 @@ class MyLottoPage extends StatelessWidget {
             onTap: () {
               Navigator.pushReplacement(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => HomePage(role: role, fullname: fullname),
-                ),
+                MaterialPageRoute(builder: (_) => HomePage(customer: customer)),
               );
             },
             child: Column(
@@ -249,7 +221,7 @@ class MyLottoPage extends StatelessWidget {
               Navigator.pushReplacement(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => SettingPage(role: role, fullname: fullname),
+                  builder: (_) => SettingPage(customer: customer),
                 ),
               );
             },

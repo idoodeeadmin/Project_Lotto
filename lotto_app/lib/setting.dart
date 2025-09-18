@@ -6,18 +6,72 @@ import 'random.dart';
 import 'package:http/http.dart' as http;
 import 'config.dart';
 import 'dart:convert';
+import 'model/login_model.dart';
+import 'model/global_data.dart';
 
 class SettingPage extends StatelessWidget {
-  final String fullname;
-  final String role;
+  final Customer customer;
 
-  const SettingPage({super.key, required this.fullname, required this.role});
+  const SettingPage({super.key, required this.customer});
+
+  Future<void> _resetSystem(BuildContext context) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("ยืนยัน"),
+        content: const Text(
+          "คุณต้องการรีเซ็ตระบบใช่หรือไม่? ข้อมูลทั้งหมด (ยกเว้น admin) จะถูกลบ",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("ยกเลิก"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text("ยืนยัน", style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      final response = await http.post(
+        Uri.parse("${AppConfig.apiEndpoint}/reset-system"),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+
+        // ✅ ล้าง global state หลัง reset
+        globalPrizeNumbers = [];
+        globalAllNumbers = [];
+        globalSoldNumbers = [];
+        globalCurrentRound = 1; // หรือ 0 ถ้าอยากให้ไม่มีงวดเลย
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(data['message'] ?? "รีเซ็ตระบบเรียบร้อยแล้ว")),
+        );
+      } else {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("รีเซ็ตระบบล้มเหลว")));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error: $e")));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Column(
         children: [
+          // Header
           Container(
             width: double.infinity,
             padding: const EdgeInsets.only(
@@ -54,7 +108,7 @@ class SettingPage extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          "ชื่อผู้ใช้: $fullname",
+                          "ชื่อผู้ใช้: ${customer.fullname}",
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 18,
@@ -63,7 +117,7 @@ class SettingPage extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          role == 'admin'
+                          customer.role == 'admin'
                               ? "ผู้ใช้งานระดับผู้ดูแลระบบ"
                               : "ผู้ใช้งานทั่วไป",
                           style: const TextStyle(
@@ -79,6 +133,7 @@ class SettingPage extends StatelessWidget {
             ),
           ),
 
+          // Menu
           Expanded(
             child: Container(
               width: double.infinity,
@@ -87,65 +142,28 @@ class SettingPage extends StatelessWidget {
                 children: [
                   const SizedBox(height: 20),
 
-                  if (role == 'admin') ...[
+                  if (customer.role == 'admin') ...[
                     _menuItem(context, "สุ่มออกรางวัล", () {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) =>
-                              RandomPage(role: role, fullname: fullname),
+                          builder: (_) => RandomPage(customer: customer),
                         ),
                       );
                     }),
-
                     const Divider(height: 1, color: Colors.grey),
-                    _menuItem(context, "รีเซ็ตระบบ", () async {
-                      final confirm = await showDialog<bool>(
-                        context: context,
-                        builder: (context) => AlertDialog(
-                          title: const Text("ยืนยัน"),
-                          content: const Text(
-                            "คุณต้องการรีเซ็ตระบบใช่หรือไม่?",
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context, false),
-                              child: const Text("ยกเลิก"),
-                            ),
-                            TextButton(
-                              onPressed: () => Navigator.pop(context, true),
-                              child: const Text("ยืนยัน"),
-                            ),
-                          ],
-                        ),
-                      );
 
-                      if (confirm != true) return;
-
-                      try {
-                        final response = await http.post(
-                          Uri.parse("${AppConfig.apiEndpoint}/reset-system"),
-                        );
-                        if (response.statusCode == 200) {
-                          final data = jsonDecode(response.body);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(data['message'])),
-                          );
-                        } else {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text("รีเซ็ตระบบล้มเหลว")),
-                          );
-                        }
-                      } catch (e) {
-                        ScaffoldMessenger.of(
-                          context,
-                        ).showSnackBar(SnackBar(content: Text("Error: $e")));
-                      }
-                    }),
+                    _menuItem(
+                      context,
+                      "รีเซ็ตระบบ",
+                      () => _resetSystem(context),
+                    ),
                     const Divider(height: 1, color: Colors.grey),
                   ],
 
                   const SizedBox(height: 30),
+
+                  // Logout button
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color.fromARGB(255, 194, 24, 12),
@@ -209,9 +227,7 @@ class SettingPage extends StatelessWidget {
             onTap: () {
               Navigator.pushReplacement(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => HomePage(role: role, fullname: fullname),
-                ),
+                MaterialPageRoute(builder: (_) => HomePage(customer: customer)),
               );
             },
             child: Column(
@@ -232,7 +248,7 @@ class SettingPage extends StatelessWidget {
               Navigator.pushReplacement(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => MyLottoPage(role: role, fullname: fullname),
+                  builder: (_) => MyLottoPage(customer: customer),
                 ),
               );
             },

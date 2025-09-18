@@ -1,157 +1,344 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
-class BuyPage extends StatelessWidget {
-  const BuyPage({super.key});
+import 'model/login_model.dart';
+import 'home.dart';
+import 'config.dart';
+
+class BuyPage extends StatefulWidget {
+  final Customer customer;
+
+  const BuyPage({super.key, required this.customer});
+
+  @override
+  State<BuyPage> createState() => _BuyPageState();
+}
+
+class _BuyPageState extends State<BuyPage> {
+  late double walletBalance;
+  int currentRound = 0;
+  List<Map<String, dynamic>> lottoList = [];
+  List<Map<String, dynamic>> filteredLottoList = [];
+  bool isLoading = true;
+  final TextEditingController searchController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    walletBalance = widget.customer.walletBalance;
+    fetchCurrentRoundAndLotto();
+  }
+
+  Future<void> fetchCurrentRoundAndLotto() async {
+    setState(() {
+      isLoading = true;
+      lottoList = [];
+      filteredLottoList = [];
+      currentRound = 0;
+    });
+
+    try {
+      // ดึงงวดล่าสุดที่มีล็อตเตอรี่ (last-round)
+      final roundResponse = await http.get(
+        Uri.parse("${AppConfig.apiEndpoint}/last-round"),
+      );
+
+      if (roundResponse.statusCode != 200) {
+        setState(() => isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ไม่สามารถดึงงวดล่าสุดได้')),
+        );
+        return;
+      }
+
+      final roundData = json.decode(roundResponse.body);
+      int round = roundData['round'] ?? 0;
+
+      if (round == 0) {
+        // ยังไม่มีการสร้าง Lotto เลย
+        setState(() {
+          currentRound = 0;
+          lottoList = [];
+          filteredLottoList = [];
+          isLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'ยังไม่มีล็อตเตอรี่ให้ซื้อ — กรุณาให้ผู้ดูแลสร้างงวดก่อน',
+            ),
+          ),
+        );
+        return;
+      }
+
+      setState(() => currentRound = round);
+
+      // ดึงล็อตเตอรี่ที่ยังไม่ขายของงวดนี้
+      final lottoResponse = await http.get(
+        Uri.parse("${AppConfig.apiEndpoint}/lotto/$currentRound"),
+      );
+
+      if (lottoResponse.statusCode != 200) {
+        setState(() => isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ไม่สามารถดึงล็อตเตอรี่ได้')),
+        );
+        return;
+      }
+
+      final lottoData = json.decode(lottoResponse.body);
+      final list = List<Map<String, dynamic>>.from(lottoData['lotto'] ?? []);
+      setState(() {
+        lottoList = list;
+        filteredLottoList = List.from(lottoList);
+        isLoading = false;
+      });
+    } catch (e) {
+      print("Error fetching lotto: $e");
+      setState(() => isLoading = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('เกิดข้อผิดพลาด: $e')));
+    }
+  }
+
+  void searchLotto(String query) {
+    final results = lottoList.where((lotto) {
+      final number = lotto['number'].toString();
+      return number.contains(query);
+    }).toList();
+
+    setState(() {
+      filteredLottoList = results;
+    });
+  }
+
+  Future<void> buyLotto(Map<String, dynamic> lotto) async {
+    final lottoId = lotto['lotto_id'];
+    final price = (lotto['price'] ?? 80).toDouble();
+
+    if (walletBalance < price) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('ยอดเงินไม่เพียงพอ')));
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('ยืนยันการซื้อ'),
+        content: Text(
+          'คุณต้องการซื้อสลากหมายเลข ${lotto['number']} ใช่หรือไม่? ราคา ฿${price.toStringAsFixed(2)}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('ยกเลิก'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('ซื้อ'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      final response = await http.post(
+        Uri.parse("${AppConfig.apiEndpoint}/buy"),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'cus_id': widget.customer.cusId,
+          'lotto_id': lottoId,
+          'round': currentRound,
+        }),
+      );
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200) {
+        // update wallet from server response if provided
+        if (data['wallet_balance'] != null) {
+          setState(() {
+            walletBalance = (data['wallet_balance'] as num).toDouble();
+            widget.customer.walletBalance = walletBalance;
+          });
+        } else {
+          setState(() {
+            walletBalance -= price;
+            widget.customer.walletBalance = walletBalance;
+          });
+        }
+
+        setState(() {
+          lottoList.removeWhere((l) => l['lotto_id'] == lottoId);
+          filteredLottoList.removeWhere((l) => l['lotto_id'] == lottoId);
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'ซื้อสลาก ${lotto['number']} เรียบร้อย! เงินคงเหลือ: ฿${walletBalance.toStringAsFixed(2)}',
+            ),
+          ),
+        );
+      } else {
+        final msg = data['message'] ?? 'ซื้อไม่สำเร็จ';
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(msg)));
+      }
+    } catch (e) {
+      print("Buy error: $e");
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('เกิดข้อผิดพลาดขณะซื้อ: $e')));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final List<Map<String, String>> lottoList = [
-      {"number": "123 456", "price": "80"},
-      {"number": "654 321", "price": "80"},
-      {"number": "112 233", "price": "80"},
-      {"number": "445 566", "price": "80"},
-      {"number": "778 999", "price": "80"},
-      {"number": "123 056", "price": "80"},
-      {"number": "654 121", "price": "80"},
-      {"number": "112 223", "price": "80"},
-      {"number": "445 466", "price": "80"},
-      {"number": "778 899", "price": "80"},
-    ];
-
     return Scaffold(
       appBar: AppBar(
         title: const Text(
           'ซื้อสลากกินแบ่ง',
-          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
         backgroundColor: const Color(0xFF001E46),
         leading: IconButton(
-          color: Colors.white,
-          icon: const Icon(Icons.arrow_back),
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () {
-            Navigator.pop(context); // กลับไปหน้า Home
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => HomePage(customer: widget.customer),
+              ),
+            );
           },
         ),
       ),
-      backgroundColor: const Color.fromARGB(255, 221, 227, 233),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            // Row: ช่องค้นหา + ปุ่มค้นหา
-            Row(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: TextField(
-                    decoration: InputDecoration(
-                      hintText: 'ค้นหาล็อตเตอรี่',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  // Search bar
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: TextField(
+                          controller: searchController,
+                          decoration: InputDecoration(
+                            hintText: 'ค้นหาล็อตเตอรี่',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            prefixIcon: const Icon(Icons.search),
+                            filled: true,
+                            fillColor: Colors.white,
+                          ),
+                          onChanged: searchLotto,
+                        ),
                       ),
-                      prefixIcon: const Icon(Icons.search),
-                      filled: true,
-                      fillColor: Colors.white,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 1,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      print("ค้นหาเลขล็อตเตอรี่");
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF001E46),
-                      minimumSize: const Size(double.infinity, 58),
-                    ),
-                    child: const Text(
-                      'ค้นหา',
-
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                      const SizedBox(width: 8),
+                      Expanded(
+                        flex: 1,
+                        child: ElevatedButton(
+                          onPressed: () => searchLotto(searchController.text),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF001E46),
+                            minimumSize: const Size(double.infinity, 58),
+                          ),
+                          child: const Text(
+                            'ค้นหา',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
+                  const SizedBox(height: 20),
 
-            Expanded(
-              child: ListView.separated(
-                itemCount: lottoList.length,
-                separatorBuilder: (context, index) =>
-                    const Divider(color: Colors.white, thickness: 1),
-                itemBuilder: (context, index) {
-                  final lotto = lottoList[index];
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8.0),
+                  // Wallet balance
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        // เลขล็อตเตอรี่ + ราคา
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'ฉลากกินเเบ่ง',
-                              style: const TextStyle(
-                                color: Color.fromARGB(255, 0, 0, 0),
-
-                                fontSize: 14,
-                              ),
-                            ),
-                            Text(
-                              '${lotto["number"]}',
-                              style: const TextStyle(
-                                color: Color.fromARGB(255, 0, 0, 0),
-                                fontWeight: FontWeight.bold,
-                                fontSize: 18,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'ราคา: ฿${lotto["price"]}',
-                              style: const TextStyle(
-                                color: Color.fromARGB(179, 0, 0, 0),
-                                fontSize: 16,
-                              ),
-                            ),
-                          ],
-                        ),
-                        // ปุ่มซื้อ
-                        ElevatedButton(
-                          onPressed: () {
-                            print("ซื้อเลข ${lotto["number"]}");
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color.fromARGB(
-                              255,
-                              39,
-                              226,
-                              55,
-                            ),
+                        const Text(
+                          'ยอดเงินคงเหลือ',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
                           ),
-                          child: const Text(
-                            'ซื้อ',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black,
-                            ),
+                        ),
+                        Text(
+                          '฿${walletBalance.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: Colors.green,
                           ),
                         ),
                       ],
                     ),
-                  );
-                },
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Lotto list
+                  Expanded(
+                    child: filteredLottoList.isEmpty
+                        ? const Center(
+                            child: Text('ไม่มีล็อตเตอรี่ที่ว่างให้ซื้อ'),
+                          )
+                        : ListView.separated(
+                            itemCount: filteredLottoList.length,
+                            separatorBuilder: (context, index) =>
+                                const Divider(),
+                            itemBuilder: (context, index) {
+                              final lotto = filteredLottoList[index];
+                              final price = (lotto['price'] ?? 80).toDouble();
+                              return ListTile(
+                                title: Text(
+                                  lotto['number'],
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  'ราคา: ฿${price.toStringAsFixed(2)}',
+                                ),
+                                trailing: ElevatedButton(
+                                  onPressed: () => buyLotto(lotto),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.green,
+                                  ),
+                                  child: const Text(
+                                    'ซื้อ',
+                                    style: TextStyle(color: Colors.black),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
               ),
             ),
-          ],
-        ),
-      ),
     );
   }
 }
