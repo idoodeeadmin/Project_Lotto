@@ -133,6 +133,26 @@ class _RandomPageState extends State<RandomPage> {
     }
   }
 
+  Future<void> drawFromSoldNumbers() async {
+    try {
+      final response = await http.post(
+        Uri.parse("${AppConfig.apiEndpoint}/draw-from-sold/$currentRound"),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        showMessage(data['message']);
+        // ดึงรางวัลล่าสุดจาก server
+        await fetchPrizes();
+      } else {
+        final data = jsonDecode(response.body);
+        showMessage(data['message'] ?? "ไม่สามารถสุ่มรางวัลได้");
+      }
+    } catch (_) {
+      showMessage("Error drawing prizes from sold numbers");
+    }
+  }
+
   void showMessage(String message) {
     ScaffoldMessenger.of(
       context,
@@ -217,6 +237,7 @@ class _RandomPageState extends State<RandomPage> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
+          // ปุ่มสีเขียว: สุ่มรางวัลจาก server (เหมือนเดิม)
           GestureDetector(
             onTap: drawPrizes,
             child: Column(
@@ -230,8 +251,9 @@ class _RandomPageState extends State<RandomPage> {
               ],
             ),
           ),
+          // ปุ่มสีแดง: สุ่มรางวัลจากเลขที่ขายแล้ว
           GestureDetector(
-            onTap: fetchSoldNumbers,
+            onTap: drawFromSoldNumbers,
             child: Column(
               children: [
                 _circleButton(
@@ -239,7 +261,7 @@ class _RandomPageState extends State<RandomPage> {
                   const Color.fromARGB(255, 172, 43, 43),
                 ),
                 const SizedBox(height: 8),
-                const Text('เลขที่ขายแล้ว', style: TextStyle(fontSize: 14)),
+                const Text('สุ่มจากเลขขายแล้ว', style: TextStyle(fontSize: 14)),
               ],
             ),
           ),

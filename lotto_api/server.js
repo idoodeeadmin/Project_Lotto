@@ -275,6 +275,81 @@ app.post("/generate", async (req, res) => {
     res.status(500).json({ message: "เกิดข้อผิดพลาดขณะสร้าง Lotto", error: e.toString() });
   }
 });
+// สมมติใช้ Express และ DB เป็น MySQL / PostgreSQL
+
+app.post("/draw-from-sold/:round", (req, res) => {
+  const round = req.params.round;
+
+  // 1. เช็คว่ารางวัลรอบนี้ถูกสุ่มแล้วหรือยัง
+  db.all("SELECT * FROM prize WHERE round = ?", [round], (err, existingPrizes) => {
+    if (err) return res.status(500).json({ message: "เกิดข้อผิดพลาดบน server" });
+
+    if (existingPrizes.length > 0) {
+      return res.status(400).json({ message: "รางวัลงวดนี้ถูกสุ่มแล้ว", prizes: existingPrizes });
+    }
+
+    // 2. ดึงเลขที่ขายแล้ว
+    db.all(
+      "SELECT number FROM lotto WHERE round = ? AND status = 'sold'",
+      [round],
+      (err, rows) => {
+        if (err) return res.status(500).json({ message: "เกิดข้อผิดพลาดบน server" });
+
+        if (!rows || rows.length === 0) {
+          return res.status(400).json({ message: "ยังไม่มีเลขขาย" });
+        }
+
+        // 3. สุ่มเลข
+        const shuffled = rows.map(r => r.number).sort(() => 0.5 - Math.random());
+        const firstPrize = shuffled[0];
+        const secondPrize = shuffled[1] || "-";
+        const thirdPrize = shuffled[2] || "-";
+
+        const prizes = [
+          { prize_type: "รางวัลที่ 1", number: firstPrize, reward_amount: 6000000 },
+          { prize_type: "รางวัลที่ 2", number: secondPrize, reward_amount: 200000 },
+          { prize_type: "รางวัลที่ 3", number: thirdPrize, reward_amount: 80000 },
+          { prize_type: "เลขท้าย 3 ตัว", number: firstPrize.slice(-3), reward_amount: 4000 },
+          { prize_type: "เลขท้าย 2 ตัว", number: secondPrize !== "-" ? secondPrize.slice(-2) : "-", reward_amount: 2000 },
+        ];
+
+        // 4. บันทึกลง DB
+        const stmt = db.prepare(
+          "INSERT INTO prize (round, prize_type, number, reward_amount) VALUES (?, ?, ?, ?)"
+        );
+
+        for (const p of prizes) {
+          stmt.run(round, p.prize_type, p.number, p.reward_amount);
+        }
+
+        stmt.finalize((err) => {
+          if (err) return res.status(500).json({ message: "บันทึกรางวัลล้มเหลว" });
+          res.json({ message: "สุ่มรางวัลจากเลขขายแล้วเรียบร้อย 🎉", prizes });
+        });
+      }
+    );
+  });
+});
+
+app.get("/my-lotto/:cus_id", (req, res) => {
+  const cusId = req.params.cus_id;
+
+  db.all(
+    `SELECT p.purchase_id, l.lotto_id, l.number, p.round, p.purchase_date, p.is_redeemed
+     FROM purchase p
+     JOIN lotto l ON p.lotto_id = l.lotto_id
+     WHERE p.cus_id = ?
+     ORDER BY p.purchase_date DESC`,
+    [cusId],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ myLotto: rows });
+    }
+  );
+});
+
+
+
 
 // Sold numbers
 app.get("/sold-lotto/:round", (req, res) => {

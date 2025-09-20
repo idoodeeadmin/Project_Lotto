@@ -21,7 +21,7 @@ class GlobalCustomer {
 // ------------------------
 List<String> globalAllNumbers = [];
 List<String> globalSoldNumbers = [];
-int globalCurrentRound = 1; // เพิ่มตัวนี้
+int globalCurrentRound = 1;
 
 // ------------------------
 // ฟังก์ชันช่วยเหลือ (Optional)

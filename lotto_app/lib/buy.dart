@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-
+import 'model/global_data.dart';
 import 'model/login_model.dart';
 import 'home.dart';
 import 'config.dart';
@@ -21,6 +21,7 @@ class _BuyPageState extends State<BuyPage> {
   List<Map<String, dynamic>> lottoList = [];
   List<Map<String, dynamic>> filteredLottoList = [];
   bool isLoading = true;
+  bool isRoundClosed = false; // <-- เช็กว่ารางวัลสุ่มแล้ว
   final TextEditingController searchController = TextEditingController();
 
   @override
@@ -36,10 +37,11 @@ class _BuyPageState extends State<BuyPage> {
       lottoList = [];
       filteredLottoList = [];
       currentRound = 0;
+      isRoundClosed = false;
     });
 
     try {
-      // ดึงงวดล่าสุดที่มีล็อตเตอรี่ (last-round)
+      // ดึงงวดล่าสุด
       final roundResponse = await http.get(
         Uri.parse("${AppConfig.apiEndpoint}/last-round"),
       );
@@ -56,7 +58,6 @@ class _BuyPageState extends State<BuyPage> {
       int round = roundData['round'] ?? 0;
 
       if (round == 0) {
-        // ยังไม่มีการสร้าง Lotto เลย
         setState(() {
           currentRound = 0;
           lottoList = [];
@@ -74,6 +75,31 @@ class _BuyPageState extends State<BuyPage> {
       }
 
       setState(() => currentRound = round);
+
+      // เช็กว่ารางวัลสุ่มแล้วหรือยัง
+      final prizeResponse = await http.get(
+        Uri.parse("${AppConfig.apiEndpoint}/prize/$currentRound"),
+      );
+
+      if (prizeResponse.statusCode == 200) {
+        final prizeData = json.decode(prizeResponse.body);
+        final prizes = prizeData['prizes'] as List? ?? [];
+        if (prizes.isNotEmpty) {
+          // งวดนี้ออกผลแล้ว
+          setState(() {
+            isRoundClosed = true;
+            lottoList = [];
+            filteredLottoList = [];
+            isLoading = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('งวดนี้ออกผลรางวัลแล้ว กรุณารอสุ่มรางวัลงวดหน้า'),
+            ),
+          );
+          return;
+        }
+      }
 
       // ดึงล็อตเตอรี่ที่ยังไม่ขายของงวดนี้
       final lottoResponse = await http.get(
@@ -162,7 +188,7 @@ class _BuyPageState extends State<BuyPage> {
       final data = json.decode(response.body);
 
       if (response.statusCode == 200) {
-        // update wallet from server response if provided
+        // update wallet
         if (data['wallet_balance'] != null) {
           setState(() {
             walletBalance = (data['wallet_balance'] as num).toDouble();
@@ -175,9 +201,17 @@ class _BuyPageState extends State<BuyPage> {
           });
         }
 
+        // ------------------------
+        // ลบเลขที่ซื้อจาก list ของ lotto page
         setState(() {
           lottoList.removeWhere((l) => l['lotto_id'] == lottoId);
           filteredLottoList.removeWhere((l) => l['lotto_id'] == lottoId);
+        });
+
+        // ------------------------
+        // เพิ่มเลขที่ซื้อไป globalSoldNumbers
+        setState(() {
+          globalSoldNumbers.add(lotto['number']);
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
@@ -228,114 +262,131 @@ class _BuyPageState extends State<BuyPage> {
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-                  // Search bar
-                  Row(
-                    children: [
-                      Expanded(
-                        flex: 3,
-                        child: TextField(
-                          controller: searchController,
-                          decoration: InputDecoration(
-                            hintText: 'ค้นหาล็อตเตอรี่',
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            prefixIcon: const Icon(Icons.search),
-                            filled: true,
-                            fillColor: Colors.white,
-                          ),
-                          onChanged: searchLotto,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        flex: 1,
-                        child: ElevatedButton(
-                          onPressed: () => searchLotto(searchController.text),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF001E46),
-                            minimumSize: const Size(double.infinity, 58),
-                          ),
-                          child: const Text(
-                            'ค้นหา',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-
-                  // Wallet balance
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  if (!isRoundClosed) ...[
+                    // Search bar
+                    Row(
                       children: [
-                        const Text(
-                          'ยอดเงินคงเหลือ',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
+                        Expanded(
+                          flex: 3,
+                          child: TextField(
+                            controller: searchController,
+                            decoration: InputDecoration(
+                              hintText: 'ค้นหาล็อตเตอรี่',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              prefixIcon: const Icon(Icons.search),
+                              filled: true,
+                              fillColor: Colors.white,
+                            ),
+                            onChanged: searchLotto,
                           ),
                         ),
-                        Text(
-                          '฿${walletBalance.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                            color: Colors.green,
+                        const SizedBox(width: 8),
+                        Expanded(
+                          flex: 1,
+                          child: ElevatedButton(
+                            onPressed: () => searchLotto(searchController.text),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF001E46),
+                              minimumSize: const Size(double.infinity, 58),
+                            ),
+                            child: const Text(
+                              'ค้นหา',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
                           ),
                         ),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 20),
+                    const SizedBox(height: 20),
 
-                  // Lotto list
-                  Expanded(
-                    child: filteredLottoList.isEmpty
-                        ? const Center(
-                            child: Text('ไม่มีล็อตเตอรี่ที่ว่างให้ซื้อ'),
-                          )
-                        : ListView.separated(
-                            itemCount: filteredLottoList.length,
-                            separatorBuilder: (context, index) =>
-                                const Divider(),
-                            itemBuilder: (context, index) {
-                              final lotto = filteredLottoList[index];
-                              final price = (lotto['price'] ?? 80).toDouble();
-                              return ListTile(
-                                title: Text(
-                                  lotto['number'],
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                subtitle: Text(
-                                  'ราคา: ฿${price.toStringAsFixed(2)}',
-                                ),
-                                trailing: ElevatedButton(
-                                  onPressed: () => buyLotto(lotto),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.green,
-                                  ),
-                                  child: const Text(
-                                    'ซื้อ',
-                                    style: TextStyle(color: Colors.black),
-                                  ),
-                                ),
-                              );
-                            },
+                    // Wallet balance
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'ยอดเงินคงเหลือ',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
                           ),
-                  ),
+                          Text(
+                            '฿${walletBalance.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              color: Colors.green,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Lotto list
+                    Expanded(
+                      child: filteredLottoList.isEmpty
+                          ? const Center(
+                              child: Text('ไม่มีล็อตเตอรี่ที่ว่างให้ซื้อ'),
+                            )
+                          : ListView.separated(
+                              itemCount: filteredLottoList.length,
+                              separatorBuilder: (context, index) =>
+                                  const Divider(),
+                              itemBuilder: (context, index) {
+                                final lotto = filteredLottoList[index];
+                                final price = (lotto['price'] ?? 80).toDouble();
+                                return ListTile(
+                                  title: Text(
+                                    lotto['number'],
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    'ราคา: ฿${price.toStringAsFixed(2)}',
+                                  ),
+                                  trailing: ElevatedButton(
+                                    onPressed: () => buyLotto(lotto),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.green,
+                                    ),
+                                    child: const Text(
+                                      'ซื้อ',
+                                      style: TextStyle(color: Colors.black),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ] else ...[
+                    // ถ้างวดนี้ออกผลแล้ว
+                    Expanded(
+                      child: Center(
+                        child: Text(
+                          'งวดนี้ออกผลรางวัลแล้ว กรุณารอสุ่มรางวัลงวดหน้า',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
