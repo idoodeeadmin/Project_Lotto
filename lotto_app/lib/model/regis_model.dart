@@ -28,7 +28,6 @@ class RegisterRequest {
     "role": role,
   };
 
-  // เผื่อใช้ parse ข้อมูลจาก local storage
   factory RegisterRequest.fromJson(Map<String, dynamic> json) {
     return RegisterRequest(
       fullname: json["fullname"] ?? "",

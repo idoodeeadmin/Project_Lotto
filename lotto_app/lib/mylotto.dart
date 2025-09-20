@@ -19,7 +19,7 @@ class _MyLottoPageState extends State<MyLottoPage> {
   List<dynamic> myLotto = [];
   bool isLoading = true;
 
-  // ค้นหา
+  Map<int, List<dynamic>> prizeByRound = {};
   final TextEditingController _searchController = TextEditingController();
   String _searchText = '';
 
@@ -41,6 +41,11 @@ class _MyLottoPageState extends State<MyLottoPage> {
           myLotto = data["myLotto"];
           isLoading = false;
         });
+
+        final rounds = myLotto.map((e) => e["round"]).toSet();
+        for (final r in rounds) {
+          fetchPrize(r);
+        }
       } else {
         throw Exception("โหลดข้อมูลไม่สำเร็จ");
       }
@@ -52,16 +57,71 @@ class _MyLottoPageState extends State<MyLottoPage> {
     }
   }
 
-  Future<void> redeemPrize(int purchaseId) async {
+  Future<void> fetchPrize(int round) async {
+    if (prizeByRound.containsKey(round)) return;
+
+    final url = Uri.parse("${AppConfig.apiEndpoint}/prize/$round");
+    try {
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        setState(() {
+          prizeByRound[round] = data["prizes"];
+        });
+      }
+    } catch (e) {
+      print("Error fetching prize for round $round: $e");
+    }
+  }
+
+  List<Map<String, dynamic>> checkPrizes(int round, String number) {
+    final prizes = prizeByRound[round];
+    if (prizes == null) return [];
+
+    List<Map<String, dynamic>> won = [];
+    for (final prize in prizes) {
+      if (prize["prize_type"] == "เลขท้าย 3 ตัว") {
+        if (number.substring(number.length - 3) == prize["number"])
+          won.add(prize);
+      } else if (prize["prize_type"] == "เลขท้าย 2 ตัว") {
+        if (number.substring(number.length - 2) == prize["number"])
+          won.add(prize);
+      } else {
+        if (number == prize["number"]) won.add(prize);
+      }
+    }
+    return won;
+  }
+
+  int getRewardAmount(Map<String, dynamic> prize) {
+    return prize["reward_amount"] ?? 0;
+  }
+
+  Future<void> redeemPrize(Map<String, dynamic> lotto) async {
+    final purchaseId = lotto["purchase_id"];
+    final round = lotto["round"];
+    final number = lotto["number"];
+
     final url = Uri.parse("${AppConfig.apiEndpoint}/redeem/$purchaseId");
     try {
       final response = await http.post(url);
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(data["message"] ?? "ขึ้นเงินสำเร็จ")),
+
+        final prizes = checkPrizes(round, number);
+        final totalReward = prizes.fold(
+          0,
+          (sum, p) => sum + getRewardAmount(p),
         );
-        fetchMyLotto(); // โหลดข้อมูลใหม่
+
+        setState(() {
+          widget.customer.walletBalance += totalReward;
+          lotto["is_redeemed"] = 1;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(data["message"] ?? "ขึ้นเงินรางวัลแล้ว")),
+        );
       } else {
         final err = json.decode(response.body);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -85,6 +145,8 @@ class _MyLottoPageState extends State<MyLottoPage> {
 
   @override
   Widget build(BuildContext context) {
+    final walletBalance = widget.customer.walletBalance;
+
     return Scaffold(
       appBar: AppBar(
         title: Text('My Lotto - ${widget.customer.fullname}'),
@@ -92,7 +154,6 @@ class _MyLottoPageState extends State<MyLottoPage> {
       ),
       body: Column(
         children: [
-          // 🔍 Search bar
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: Row(
@@ -149,8 +210,25 @@ class _MyLottoPageState extends State<MyLottoPage> {
               ],
             ),
           ),
-
-          // 📄 My Lotto List
+          Padding(
+            padding: const EdgeInsets.only(left: 16.0, top: 0, bottom: 8.0),
+            child: Row(
+              children: [
+                const Text(
+                  "My Wallet: ",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                Text(
+                  "฿${walletBalance.toStringAsFixed(2)}",
+                  style: const TextStyle(
+                    color: Colors.green,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ],
+            ),
+          ),
           Expanded(
             child: isLoading
                 ? const Center(child: CircularProgressIndicator())
@@ -160,12 +238,41 @@ class _MyLottoPageState extends State<MyLottoPage> {
                     itemCount: filteredLotto.length,
                     itemBuilder: (context, index) {
                       final lotto = filteredLotto[index];
-                      final number = lotto["number"];
+                      final number = lotto["number"].toString();
                       final round = lotto["round"];
                       final purchaseDate = lotto["purchase_date"];
                       final claimed = lotto["is_redeemed"] == 1;
 
+                      final prizes = checkPrizes(round, number);
+                      Color cardColor = Colors.white;
+                      String prizeText = "ยังไม่สุ่มรางวัล";
+                      Color prizeTextColor = Colors.orange;
+                      String prizeTypeText = "";
+
+                      if (prizeByRound.containsKey(round)) {
+                        if (prizes.isEmpty) {
+                          prizeText = "ไม่ถูกรางวัล";
+                          prizeTextColor = Colors.red;
+                        } else {
+                          cardColor = Colors.green[50]!;
+                          if (claimed) {
+                            prizeText = "ขึ้นเงินรางวัลแล้ว";
+                            prizeTextColor = Colors.blue;
+                          } else {
+                            prizeText =
+                                "ถูกรางวัล: ${prizes.map((p) => p["prize_type"]).join(", ")}";
+                            prizeTextColor = Colors.green;
+                          }
+                          final totalReward = prizes.fold(
+                            0,
+                            (sum, p) => sum + getRewardAmount(p),
+                          );
+                          prizeTypeText = "รวมเงินรางวัล: $totalReward บาท";
+                        }
+                      }
+
                       return Card(
+                        color: cardColor,
                         margin: const EdgeInsets.symmetric(
                           vertical: 8,
                           horizontal: 16,
@@ -175,16 +282,22 @@ class _MyLottoPageState extends State<MyLottoPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                "งวดที่: $round",
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                "เลขที่ซื้อ: $number",
-                                style: const TextStyle(fontSize: 18),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      "ฉลากกินแบ่ง: $number",
+                                      style: const TextStyle(fontSize: 18),
+                                    ),
+                                  ),
+                                  Text(
+                                    "งวดที่: $round",
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.black54,
+                                    ),
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 4),
                               Text(
@@ -192,26 +305,49 @@ class _MyLottoPageState extends State<MyLottoPage> {
                                 style: const TextStyle(color: Colors.black54),
                               ),
                               const SizedBox(height: 8),
-                              claimed
-                                  ? ElevatedButton(
-                                      onPressed: null,
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.grey,
-                                      ),
-                                      child: const Text('ได้รับแล้ว'),
-                                    )
-                                  : ElevatedButton(
-                                      onPressed: () {
-                                        redeemPrize(lotto["purchase_id"]);
-                                      },
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.green,
-                                      ),
-                                      child: const Text(
-                                        'ขึ้นเงินรางวัล',
-                                        style: TextStyle(color: Colors.white),
-                                      ),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          prizeText,
+                                          style: TextStyle(
+                                            color: prizeTextColor,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                        if (prizeTypeText.isNotEmpty)
+                                          Text(
+                                            prizeTypeText,
+                                            style: const TextStyle(
+                                              color: Colors.black,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                      ],
                                     ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  (!claimed && prizes.isNotEmpty)
+                                      ? ElevatedButton(
+                                          onPressed: () => redeemPrize(lotto),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.green,
+                                          ),
+                                          child: const Text(
+                                            'ขึ้นเงินรางวัล',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        )
+                                      : Container(),
+                                ],
+                              ),
                             ],
                           ),
                         ),
@@ -219,7 +355,6 @@ class _MyLottoPageState extends State<MyLottoPage> {
                     },
                   ),
           ),
-
           _footer(context),
         ],
       ),

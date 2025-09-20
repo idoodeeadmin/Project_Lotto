@@ -1,3 +1,4 @@
+
 const express = require("express");
 const sqlite3 = require("sqlite3").verbose();
 const cors = require("cors");
@@ -300,17 +301,25 @@ app.post("/draw-from-sold/:round", (req, res) => {
         }
 
         // 3. สุ่มเลข
-        const shuffled = rows.map(r => r.number).sort(() => 0.5 - Math.random());
+        const soldNumbers = rows.map(r => r.number);
+        const shuffled = [...soldNumbers].sort(() => 0.5 - Math.random());
         const firstPrize = shuffled[0];
         const secondPrize = shuffled[1] || "-";
         const thirdPrize = shuffled[2] || "-";
+
+        // เลขท้าย 3 ตัว = จากรางวัลที่ 1
+        const last3 = firstPrize.slice(-3);
+
+        // เลขท้าย 2 ตัว = สุ่มจากเลขที่ขายจริง
+        const last2Candidate = soldNumbers[Math.floor(Math.random() * soldNumbers.length)];
+        const last2 = last2Candidate.slice(-2);
 
         const prizes = [
           { prize_type: "รางวัลที่ 1", number: firstPrize, reward_amount: 6000000 },
           { prize_type: "รางวัลที่ 2", number: secondPrize, reward_amount: 200000 },
           { prize_type: "รางวัลที่ 3", number: thirdPrize, reward_amount: 80000 },
-          { prize_type: "เลขท้าย 3 ตัว", number: firstPrize.slice(-3), reward_amount: 4000 },
-          { prize_type: "เลขท้าย 2 ตัว", number: secondPrize !== "-" ? secondPrize.slice(-2) : "-", reward_amount: 2000 },
+          { prize_type: "เลขท้าย 3 ตัว", number: last3, reward_amount: 4000 },
+          { prize_type: "เลขท้าย 2 ตัว", number: last2, reward_amount: 2000 },
         ];
 
         // 4. บันทึกลง DB
@@ -330,6 +339,8 @@ app.post("/draw-from-sold/:round", (req, res) => {
     );
   });
 });
+
+
 
 app.get("/my-lotto/:cus_id", (req, res) => {
   const cusId = req.params.cus_id;
@@ -386,69 +397,83 @@ app.post("/draw-prizes/:round", async (req, res) => {
   }
 });
 
+
 // Redeem
 app.post("/redeem/:purchase_id", (req, res) => {
   const purchaseId = req.params.purchase_id;
 
-  db.get(
-    "SELECT is_redeemed, lotto_id, round FROM purchase WHERE purchase_id = ?",
-    [purchaseId],
-    (err, row) => {
+  db.get("SELECT * FROM purchase WHERE purchase_id = ?", [purchaseId], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!row) return res.status(404).json({ message: "ไม่พบการซื้อ" });
+    if (row.is_redeemed) return res.status(400).json({ message: "คุณขึ้นเงินรางวัลแล้ว" });
+
+    const cusId = row.cus_id;
+
+    db.get("SELECT number, round FROM lotto WHERE lotto_id = ?", [row.lotto_id], (err, lottoRow) => {
       if (err) return res.status(500).json({ error: err.message });
-      if (!row) return res.status(404).json({ message: "ไม่พบการซื้อ" });
-      if (row.is_redeemed) return res.status(400).json({ message: "คุณขึ้นเงินรางวัลแล้ว" });
+      if (!lottoRow) return res.status(404).json({ message: "ไม่พบเลขล็อตโต้" });
 
-      // get lotto number
-      db.get("SELECT number FROM lotto WHERE lotto_id = ?", [row.lotto_id], (err, lottoRow) => {
+      const lottoNumber = lottoRow.number;
+      const round = lottoRow.round;
+
+      db.all("SELECT * FROM prize WHERE round = ?", [round], (err, prizeRows) => {
         if (err) return res.status(500).json({ error: err.message });
-        if (!lottoRow) return res.status(404).json({ message: "ไม่พบเลขล็อตโต้" });
 
-        const lottoNumber = lottoRow.number;
+        const matchedPrizes = [];
 
-        // fetch all prizes for the round and match appropriately
-        db.all("SELECT * FROM prize WHERE round = ?", [row.round], (err, prizeRows) => {
-          if (err) return res.status(500).json({ error: err.message });
-
-          let matchedPrize = null;
-          for (const p of prizeRows) {
-            if (!p.prize_type) continue;
-            if (p.prize_type === "เลขท้าย 3 ตัว") {
-              if (lottoNumber.slice(-3) === p.number) {
-                matchedPrize = p;
-                break;
-              }
-            } else if (p.prize_type === "เลขท้าย 2 ตัว") {
-              if (lottoNumber.slice(-2) === p.number) {
-                matchedPrize = p;
-                break;
-              }
-            } else {
-              // full number match for main prizes
-              if (lottoNumber === p.number) {
-                matchedPrize = p;
-                break;
-              }
-            }
+        for (const p of prizeRows) {
+          if (!p.prize_type) continue;
+          switch (p.prize_type) {
+            case "รางวัลที่ 1":
+            case "รางวัลที่ 2":
+            case "รางวัลที่ 3":
+              if (lottoNumber === p.number) matchedPrizes.push(p);
+              break;
+            case "เลขท้าย 3 ตัว":
+              if (lottoNumber.slice(-3) === p.number) matchedPrizes.push(p);
+              break;
+            case "เลขท้าย 2 ตัว":
+              if (lottoNumber.slice(-2) === p.number) matchedPrizes.push(p);
+              break;
           }
+        }
 
-          if (!matchedPrize) return res.status(400).json({ message: "เลขนี้ไม่ถูกรางวัล" });
+        if (matchedPrizes.length === 0)
+          return res.status(400).json({ message: "เลขนี้ไม่ถูกรางวัล" });
+
+        const totalReward = matchedPrizes.reduce((sum, p) => sum + p.reward_amount, 0);
+
+        // เพิ่ม wallet + อัพเดท is_redeemed
+        db.serialize(() => {
+          db.run("BEGIN TRANSACTION");
 
           db.run(
-            "UPDATE purchase SET is_redeemed = 1 WHERE purchase_id = ?",
-            [purchaseId],
-            (err) => {
-              if (err) return res.status(500).json({ error: err.message });
-              res.json({
-                message: "ขึ้นเงินรางวัลสำเร็จ",
-                prize: matchedPrize,
-              });
-            }
+            "UPDATE customer SET wallet_balance = wallet_balance + ? WHERE cus_id = ?",
+            [totalReward, cusId]
           );
+
+          db.run(
+            "UPDATE purchase SET is_redeemed = 1 WHERE cus_id = ? AND round = ? AND lotto_id = ?",
+            [cusId, round, row.lotto_id]
+          );
+
+          db.run("COMMIT", (err) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            res.json({
+              message: "ขึ้นเงินรางวัลสำเร็จ",
+              totalReward,
+              prizes: matchedPrizes.map(p => ({ prizeType: p.prize_type, number: p.number, rewardAmount: p.reward_amount })),
+            });
+          });
         });
       });
-    }
-  );
+    });
+  });
 });
+
+
+
 
 // Reset system
 app.post("/reset-system", (req, res) => {

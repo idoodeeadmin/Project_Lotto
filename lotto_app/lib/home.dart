@@ -1,16 +1,120 @@
 import 'package:flutter/material.dart';
-import 'buy.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+
+import 'Buy.dart';
 import 'mylotto.dart';
 import 'setting.dart';
-import 'model/login_model.dart';
+import 'config.dart';
+import 'model/random_model.dart';
+import 'model/login_model.dart'; // Customer model
 
-class HomePage extends StatelessWidget {
-  final Customer customer;
+class HomePage extends StatefulWidget {
+  final Customer customer; // รับ Customer object
 
   const HomePage({super.key, required this.customer});
 
   @override
+  _HomePageState createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  List<Prize> prizeNumbers = []; // รางวัลงวดปัจจุบัน
+  List<Prize> lastRoundPrizes = []; // รางวัลงวดก่อนหน้า
+  bool isLoading = true;
+  int currentRound = 1;
+
+  @override
+  void initState() {
+    super.initState();
+    fetchCurrentRound();
+  }
+
+  Future<void> fetchCurrentRound() async {
+    try {
+      final response = await http.get(
+        Uri.parse("${AppConfig.apiEndpoint}/current-round"),
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final roundRes = ResRound.fromJson(data);
+        setState(() {
+          currentRound = roundRes.round;
+        });
+        // ดึงรางวัลงวดปัจจุบันก่อน
+        await fetchPrizes(currentRound);
+        // ถ้างวดปัจจุบันยังไม่มีรางวัล ให้ใช้รางวัลงวดก่อนหน้า
+        if (prizeNumbers.isEmpty && currentRound > 1) {
+          await fetchPrizes(currentRound - 1);
+        }
+      } else {
+        setState(() => isLoading = false);
+      }
+    } catch (e) {
+      setState(() => isLoading = false);
+    }
+  }
+
+  Future<void> fetchPrizes(int round) async {
+    try {
+      final response = await http.get(
+        Uri.parse("${AppConfig.apiEndpoint}/prize/$round"),
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final prizeRes = ResPrize.fromJson(data);
+        setState(() {
+          prizeNumbers = prizeRes.prizes;
+          isLoading = false;
+        });
+      } else {
+        setState(() => isLoading = false);
+      }
+    } catch (e) {
+      setState(() => isLoading = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    // -----------------------------
+    // ใช้ตัวแปร String + int แทน _getPrize()
+    String firstPrize = '';
+    String secondPrize = '';
+    String thirdPrize = '';
+    String last3 = '';
+    String last2 = '';
+    int firstPrizeAmount = 0;
+    int secondPrizeAmount = 0;
+    int thirdPrizeAmount = 0;
+    int last3Amount = 0;
+    int last2Amount = 0;
+
+    for (var p in prizeNumbers) {
+      switch (p.prizeType) {
+        case 'รางวัลที่ 1':
+          firstPrize = p.number;
+          firstPrizeAmount = p.rewardAmount;
+          break;
+        case 'รางวัลที่ 2':
+          secondPrize = p.number;
+          secondPrizeAmount = p.rewardAmount;
+          break;
+        case 'รางวัลที่ 3':
+          thirdPrize = p.number;
+          thirdPrizeAmount = p.rewardAmount;
+          break;
+        case 'เลขท้าย 3 ตัว':
+          last3 = p.number;
+          last3Amount = p.rewardAmount;
+          break;
+        case 'เลขท้าย 2 ตัว':
+          last2 = p.number;
+          last2Amount = p.rewardAmount;
+          break;
+      }
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFF001E46),
       body: SafeArea(
@@ -29,22 +133,20 @@ class HomePage extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 10),
-              Text(
-                'สวัสดี, ${customer.fullname}',
-                style: const TextStyle(
+              const Text(
+                'ล็อตเตอรี่เลขเด็ด',
+                style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),
               ),
-              const SizedBox(height: 5),
               Text(
-                customer.role == 'admin' ? 'ผู้ดูแลระบบ' : 'ผู้ใช้งานทั่วไป',
+                'หวยงวดล่าสุด ${currentRound - 1}',
                 style: const TextStyle(fontSize: 16, color: Colors.white70),
               ),
               const SizedBox(height: 20),
-
-              // Highlight Boxes
+              // รางวัลที่ 1 ทีละหลัก
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: List.generate(
@@ -59,17 +161,20 @@ class HomePage extends StatelessWidget {
                         border: Border.all(color: Colors.grey[300]!),
                       ),
                       alignment: Alignment.center,
-                      child: const Text(
-                        'รวย',
-                        style: TextStyle(fontSize: 20, color: Colors.black),
+                      child: Text(
+                        firstPrize.length == 6 ? firstPrize[index] : "-",
+                        style: const TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black,
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
               const SizedBox(height: 20),
-
-              // My Wallet + Buy Lotto
+              // Wallet + Buy Lotto
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -100,7 +205,7 @@ class HomePage extends StatelessWidget {
                               style: TextStyle(fontWeight: FontWeight.bold),
                             ),
                             Text(
-                              '฿ ${customer.walletBalance.toStringAsFixed(2)}',
+                              '฿ ${widget.customer.walletBalance.toStringAsFixed(2)}',
                               style: const TextStyle(color: Colors.green),
                             ),
                           ],
@@ -112,7 +217,7 @@ class HomePage extends StatelessWidget {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => BuyPage(customer: customer),
+                            builder: (_) => BuyPage(customer: widget.customer),
                           ),
                         );
                       },
@@ -147,135 +252,137 @@ class HomePage extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 20),
-
-              // ผลสลากกินแบ่งรัฐบาล (ตัวอย่าง)
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: const [
-                    Text(
-                      'ผลสลากกินแบ่งรัฐบาล',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+              // Prize section
+              isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Text(
+                            'ผลสลากกินแบ่งรัฐบาล',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // ชื่อรางวัล
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('รางวัลที่ 1'),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    firstPrize,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 20,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  const Text('รางวัลที่ 2'),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    secondPrize,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 20,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  const Text('รางวัลที่ 3'),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    thirdPrize,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 20,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  const Text('เลขท้าย 3 ตัว'),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    last3,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 20,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  const Text('เลขท้าย 2 ตัว'),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    last2,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 20,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              // เงินรางวัล
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  const Text('เงินรางวัล'),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    firstPrizeAmount.toString(),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 20,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 40),
+                                  Text(
+                                    secondPrizeAmount.toString(),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 20,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 40),
+                                  Text(
+                                    thirdPrizeAmount.toString(),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 20,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 30),
+                                  Text(
+                                    last3Amount.toString(),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 20,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 30),
+                                  Text(
+                                    last2Amount.toString(),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 20,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
-                    SizedBox(height: 8),
-                    // ตัวเลขรางวัลตัวอย่าง
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('รางวัลที่ 1'),
-                            SizedBox(height: 4),
-                            Text(
-                              '123 446',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 20,
-                              ),
-                            ),
-                            SizedBox(height: 12),
-                            Text('รางวัลที่ 2'),
-                            SizedBox(height: 4),
-                            Text(
-                              '654 321',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 20,
-                              ),
-                            ),
-                            SizedBox(height: 12),
-                            Text('รางวัลที่ 3'),
-                            SizedBox(height: 4),
-                            Text(
-                              '789 012',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 20,
-                              ),
-                            ),
-                            SizedBox(height: 12),
-                            Text('เลขท้าย 3 ตัว'),
-                            SizedBox(height: 4),
-                            Text(
-                              '446',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 20,
-                              ),
-                            ),
-                            SizedBox(height: 12),
-                            Text('เลขท้าย 2 ตัว'),
-                            SizedBox(height: 4),
-                            Text(
-                              '44',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 20,
-                              ),
-                            ),
-                          ],
-                        ),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Text('เงินรางวัล'),
-                            SizedBox(height: 4),
-                            Text(
-                              '3,000,000',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 20,
-                              ),
-                            ),
-                            SizedBox(height: 40),
-                            Text(
-                              '200,000',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 20,
-                              ),
-                            ),
-                            SizedBox(height: 40),
-                            Text(
-                              '80,000',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 20,
-                              ),
-                            ),
-                            SizedBox(height: 30),
-                            Text(
-                              '4,000',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 20,
-                              ),
-                            ),
-                            SizedBox(height: 30),
-                            Text(
-                              '2,000',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 20,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
               const SizedBox(height: 20),
             ],
           ),
@@ -292,68 +399,53 @@ class HomePage extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          // Home
-          InkWell(
-            onTap: () {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (_) => HomePage(customer: customer)),
-              );
-            },
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: const [
-                Icon(Icons.home, color: Colors.blue),
-                SizedBox(height: 4),
-                Text(
-                  'Home',
-                  style: TextStyle(color: Colors.blue, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          // MyLotto
-          InkWell(
-            onTap: () {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => MyLottoPage(customer: customer),
-                ),
-              );
-            },
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: const [
-                Icon(Icons.confirmation_number, color: Colors.grey),
-                SizedBox(height: 4),
-                Text(
-                  'MyLotto',
-                  style: TextStyle(color: Colors.grey, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          // Setting
-          InkWell(
-            onTap: () {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => SettingPage(customer: customer),
-                ),
-              );
-            },
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: const [
-                Icon(Icons.settings, color: Colors.grey),
-                SizedBox(height: 4),
-                Text(
-                  'Setting',
-                  style: TextStyle(color: Colors.grey, fontSize: 12),
-                ),
-              ],
+          _footerItem(Icons.home, "Home", true, () {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => HomePage(customer: widget.customer),
+              ),
+            );
+          }),
+          _footerItem(Icons.confirmation_number, "MyLotto", false, () {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => MyLottoPage(customer: widget.customer),
+              ),
+            );
+          }),
+          _footerItem(Icons.person, "Setting", false, () {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => SettingPage(customer: widget.customer),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _footerItem(
+    IconData icon,
+    String label,
+    bool active,
+    VoidCallback onTap,
+  ) {
+    return InkWell(
+      onTap: onTap,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: active ? Colors.blue : Colors.grey),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: active ? Colors.blue : Colors.grey,
+              fontSize: 12,
             ),
           ),
         ],
