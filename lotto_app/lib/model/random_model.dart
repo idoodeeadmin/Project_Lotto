@@ -53,9 +53,9 @@ class Prize {
 
   factory Prize.fromJson(Map<String, dynamic> json) {
     return Prize(
-      prizeType: json['prize_type'], // แก้ตรงนี้
+      prizeType: json['prize_type'],
       number: json['number'],
-      rewardAmount: (json['reward_amount'] as num).toInt(), // แก้ตรงนี้
+      rewardAmount: (json['reward_amount'] as num).toInt(),
     );
   }
 }
@@ -71,3 +71,10 @@ class ResPrize {
     );
   }
 }
+
+// //{
+//   "prizes": [
+//     {"prize_type": "รางวัลที่ 1", "number": "123456", "reward_amount": 6000000},
+//     {"prize_type": "รางวัลที่ 2", "number": "654321", "reward_amount": 200000}
+//   ]
+// }

@@ -7,6 +7,7 @@ import 'config.dart';
 import 'model/global_data.dart';
 import 'model/random_model.dart';
 import 'model/login_model.dart';
+import 'setting.dart';
 
 class RandomPage extends StatefulWidget {
   final Customer customer;
@@ -18,7 +19,9 @@ class RandomPage extends StatefulWidget {
 }
 
 class _RandomPageState extends State<RandomPage> {
-  bool isLoading = false;
+  bool isLoading = false; // Controls the "Create Lotto" button state
+  bool isDrawing = false; // Controls the state for all drawing actions
+
   int get currentRound => globalCurrentRound;
   set currentRound(int value) => globalCurrentRound = value;
 
@@ -28,12 +31,15 @@ class _RandomPageState extends State<RandomPage> {
   @override
   void initState() {
     super.initState();
-    if (globalPrizeNumbers.isEmpty) {
+    if (globalCurrentRound == 0) {
       fetchCurrentRound();
+    } else {
+      fetchPrizes();
     }
   }
 
   Future<void> fetchCurrentRound() async {
+    // No need for global loading state here, as it only runs on init
     try {
       final response = await http.get(
         Uri.parse("${AppConfig.apiEndpoint}/current-round"),
@@ -41,7 +47,8 @@ class _RandomPageState extends State<RandomPage> {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final roundRes = ResRound.fromJson(data);
-        setState(() => currentRound = roundRes.round);
+        // ใช้ if (mounted) เพื่อป้องกัน setState หลังจาก Widget ถูก dispose
+        if (mounted) setState(() => currentRound = roundRes.round);
         fetchPrizes();
       }
     } catch (_) {
@@ -50,7 +57,8 @@ class _RandomPageState extends State<RandomPage> {
   }
 
   Future<void> fetchAllNumbers() async {
-    setState(() => isLoading = true);
+    if (mounted)
+      setState(() => isLoading = true); // Set loading for "Create Lotto"
     try {
       final response = await http.post(
         Uri.parse("${AppConfig.apiEndpoint}/generate"),
@@ -59,11 +67,13 @@ class _RandomPageState extends State<RandomPage> {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data['lottoNumbers'] != null) {
-          setState(() {
-            globalAllNumbers = List<String>.from(data['lottoNumbers']);
-            globalSoldNumbers = [];
-            currentRound = data['round'] ?? currentRound;
-          });
+          if (mounted) {
+            setState(() {
+              globalAllNumbers = List<String>.from(data['lottoNumbers']);
+              globalSoldNumbers = [];
+              currentRound = data['round'] ?? currentRound;
+            });
+          }
           showMessage("สร้าง Lotto เสร็จแล้ว 🎉");
         } else {
           showMessage("Response ไม่ถูกต้องจาก server");
@@ -75,7 +85,7 @@ class _RandomPageState extends State<RandomPage> {
     } catch (e) {
       showMessage("เกิดข้อผิดพลาด: $e");
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) setState(() => isLoading = false); // Clear loading
     }
   }
 
@@ -87,7 +97,7 @@ class _RandomPageState extends State<RandomPage> {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final soldRes = ResSold.fromJson(data);
-        setState(() => globalSoldNumbers = soldRes.soldNumbers);
+        if (mounted) setState(() => globalSoldNumbers = soldRes.soldNumbers);
         if (soldRes.soldNumbers.isEmpty) {
           showMessage('ยังไม่มีเลขขายเลย');
         }
@@ -105,7 +115,7 @@ class _RandomPageState extends State<RandomPage> {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final prizeRes = ResPrize.fromJson(data);
-        setState(() => globalPrizeNumbers = prizeRes.prizes);
+        if (mounted) setState(() => globalPrizeNumbers = prizeRes.prizes);
       } else {
         showMessage("ไม่สามารถดึงรางวัลได้");
       }
@@ -114,8 +124,28 @@ class _RandomPageState extends State<RandomPage> {
     }
   }
 
-  Future<void> drawPrizes() async {
+  // ✅ FIX: ปรับปรุง Common function ให้ป้องกัน Race Condition ที่ต้นทาง
+  Future<void> _safeDrawAction(Future<void> Function() action) async {
+    // 1. ตรวจสอบสถานะก่อนเริ่ม
+    if (isLoading) {
+      showMessage("โปรดรอให้การสร้าง Lotto เสร็จสิ้นก่อน");
+      return;
+    }
+    // **✅ การตรวจสอบซ้ำก่อนเรียก setState คือหัวใจของการแก้ Race Condition**
+    if (isDrawing) return;
+
+    // 2. ตั้งค่าสถานะและเริ่มดำเนินการ
+    if (mounted) setState(() => isDrawing = true);
     try {
+      await action();
+    } finally {
+      // 3. เคลียร์สถานะ
+      if (mounted) setState(() => isDrawing = false);
+    }
+  }
+
+  Future<void> drawPrizes() async {
+    await _safeDrawAction(() async {
       final response = await http.post(
         Uri.parse("${AppConfig.apiEndpoint}/draw-prizes/$currentRound"),
       );
@@ -128,13 +158,11 @@ class _RandomPageState extends State<RandomPage> {
         final data = jsonDecode(response.body);
         showMessage(data['message'] ?? "ไม่สามารถสุ่มรางวัลได้");
       }
-    } catch (_) {
-      showMessage("Error drawing prizes");
-    }
+    });
   }
 
   Future<void> drawFromSoldNumbers() async {
-    try {
+    await _safeDrawAction(() async {
       final response = await http.post(
         Uri.parse("${AppConfig.apiEndpoint}/draw-from-sold/$currentRound"),
       );
@@ -142,32 +170,35 @@ class _RandomPageState extends State<RandomPage> {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         showMessage(data['message']);
-        // ดึงรางวัลล่าสุดจาก server
         await fetchPrizes();
       } else {
         final data = jsonDecode(response.body);
         showMessage(data['message'] ?? "ไม่สามารถสุ่มรางวัลได้");
       }
-    } catch (_) {
-      showMessage("Error drawing prizes from sold numbers");
-    }
+    });
   }
 
   void showMessage(String message) {
+    if (!mounted) return;
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   String displayNumber(String prizeType, String number) {
+    // This logic seems redundant, but kept as in original code
     if (prizeType.contains("เลขท้าย")) {
-      return number; // โชว์เฉพาะเลขท้าย
+      return number;
     }
-    return number; // รางวัลใหญ่ โชว์เลขเต็ม
+    return number;
   }
 
   @override
   Widget build(BuildContext context) {
+    // Disable all actions if either lotto generation or a draw is in progress
+    final bool isActionDisabled =
+        isLoading || isDrawing; // ✅ isDrawing ถูกใช้แล้ว
+
     return Scaffold(
       backgroundColor: const Color(0xFF001E46),
       body: SafeArea(
@@ -182,7 +213,11 @@ class _RandomPageState extends State<RandomPage> {
                 children: [
                   IconButton(
                     icon: const Icon(Icons.arrow_back, color: Colors.white),
-                    onPressed: () => Navigator.pop(context),
+                    onPressed: isActionDisabled
+                        ? null
+                        : () => Navigator.pop(
+                            context,
+                          ), // Disable back button while loading
                   ),
                   Image.asset('lib/assets/logo.webp', width: 120, height: 100),
                 ],
@@ -203,6 +238,7 @@ class _RandomPageState extends State<RandomPage> {
               ),
               const SizedBox(height: 20),
               ElevatedButton.icon(
+                // ✅ ใช้ isLoading ตรงนี้
                 onPressed: isLoading ? null : fetchAllNumbers,
                 icon: const Icon(Icons.add),
                 label: Text(isLoading ? "กำลังสร้าง..." : 'สร้าง Lotto'),
@@ -213,7 +249,8 @@ class _RandomPageState extends State<RandomPage> {
                 ),
               ),
               const SizedBox(height: 20),
-              _buildActionButtons(),
+              // ส่ง isActionDisabled เข้าไป
+              _buildActionButtons(isActionDisabled),
               const SizedBox(height: 20),
               if (soldNumbers.isNotEmpty) _buildSoldNumbersContainer(),
               const SizedBox(height: 20),
@@ -223,11 +260,14 @@ class _RandomPageState extends State<RandomPage> {
           ),
         ),
       ),
-      bottomNavigationBar: _footer(context),
+      bottomNavigationBar: _footer(context, isActionDisabled),
     );
   }
 
-  Widget _buildActionButtons() {
+  // Modified to accept a disabled flag
+  Widget _buildActionButtons(bool isDisabled) {
+    final Color disabledColor = Colors.grey.withOpacity(0.5);
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -239,29 +279,47 @@ class _RandomPageState extends State<RandomPage> {
         children: [
           // ปุ่มสีเขียว: สุ่มรางวัลจาก server (เหมือนเดิม)
           GestureDetector(
-            onTap: drawPrizes,
+            // ✅ ใช้ isDisabled ตรงนี้
+            onTap: isDisabled ? null : drawPrizes,
             child: Column(
               children: [
                 _circleButton(
                   Icons.casino,
-                  const Color.fromARGB(255, 26, 121, 14),
+                  isDisabled
+                      ? disabledColor
+                      : const Color.fromARGB(255, 26, 121, 14),
                 ),
                 const SizedBox(height: 8),
-                const Text('สุ่มรางวัล', style: TextStyle(fontSize: 14)),
+                Text(
+                  'สุ่มรางวัล',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: isDisabled ? Colors.grey : Colors.black,
+                  ),
+                ),
               ],
             ),
           ),
           // ปุ่มสีแดง: สุ่มรางวัลจากเลขที่ขายแล้ว
           GestureDetector(
-            onTap: drawFromSoldNumbers,
+            // ✅ ใช้ isDisabled ตรงนี้
+            onTap: isDisabled ? null : drawFromSoldNumbers,
             child: Column(
               children: [
                 _circleButton(
                   Icons.confirmation_number,
-                  const Color.fromARGB(255, 172, 43, 43),
+                  isDisabled
+                      ? disabledColor
+                      : const Color.fromARGB(255, 172, 43, 43),
                 ),
                 const SizedBox(height: 8),
-                const Text('สุ่มจากเลขขายแล้ว', style: TextStyle(fontSize: 14)),
+                Text(
+                  'สุ่มจากเลขขายแล้ว',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: isDisabled ? Colors.grey : Colors.black,
+                  ),
+                ),
               ],
             ),
           ),
@@ -378,43 +436,87 @@ class _RandomPageState extends State<RandomPage> {
     fontSize: 20,
   );
 
-  Widget _footer(BuildContext context) {
+  // Modified to accept a disabled flag and conditionally disable footers
+  Widget _footer(BuildContext context, bool isDisabled) {
     return Container(
       height: 70,
       color: const Color(0xFFF1F7F8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _footerItem(Icons.home, "Home", () {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (_) => HomePage(customer: widget.customer),
-              ),
-            );
-          }),
-          _footerItem(Icons.confirmation_number, "MyLotto", () {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (_) => MyLottoPage(customer: widget.customer),
-              ),
-            );
-          }),
+          // Home
+          _footerItem(
+            Icons.home,
+            "Home",
+            isDisabled
+                ? null
+                : () {
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => HomePage(customer: widget.customer),
+                      ),
+                    );
+                  },
+            false,
+          ),
+          // MyLotto
+          _footerItem(
+            Icons.confirmation_number,
+            "MyLotto",
+            isDisabled
+                ? null
+                : () {
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => MyLottoPage(customer: widget.customer),
+                      ),
+                    );
+                  },
+            false,
+          ),
+          // Setting (active)
+          _footerItem(
+            Icons.settings,
+            "Setting",
+            isDisabled
+                ? null
+                : () {
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => SettingPage(customer: widget.customer),
+                      ),
+                    );
+                  },
+            true, // Active highlight
+          ),
         ],
       ),
     );
   }
 
-  Widget _footerItem(IconData icon, String label, VoidCallback onTap) {
+  Widget _footerItem(
+    IconData icon,
+    String label,
+    VoidCallback? onTap,
+    bool isActive,
+  ) {
     return InkWell(
       onTap: onTap,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, color: Colors.grey),
+          Icon(icon, color: isActive ? Colors.blue : Colors.grey),
           const SizedBox(height: 4),
-          Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+          Text(
+            label,
+            style: TextStyle(
+              color: isActive ? Colors.blue : Colors.grey,
+              fontSize: 12,
+            ),
+          ),
         ],
       ),
     );

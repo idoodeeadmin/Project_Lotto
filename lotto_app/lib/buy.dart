@@ -21,7 +21,7 @@ class _BuyPageState extends State<BuyPage> {
   List<Map<String, dynamic>> lottoList = [];
   List<Map<String, dynamic>> filteredLottoList = [];
   bool isLoading = true;
-  bool isRoundClosed = false; // <-- เช็กว่ารางวัลสุ่มแล้ว
+  bool isRoundClosed = false;
   final TextEditingController searchController = TextEditingController();
 
   @override
@@ -41,7 +41,6 @@ class _BuyPageState extends State<BuyPage> {
     });
 
     try {
-      // ดึงงวดล่าสุด
       final roundResponse = await http.get(
         Uri.parse("${AppConfig.apiEndpoint}/last-round"),
       );
@@ -75,8 +74,6 @@ class _BuyPageState extends State<BuyPage> {
       }
 
       setState(() => currentRound = round);
-
-      // เช็กว่ารางวัลสุ่มแล้วหรือยัง
       final prizeResponse = await http.get(
         Uri.parse("${AppConfig.apiEndpoint}/prize/$currentRound"),
       );
@@ -85,7 +82,6 @@ class _BuyPageState extends State<BuyPage> {
         final prizeData = json.decode(prizeResponse.body);
         final prizes = prizeData['prizes'] as List? ?? [];
         if (prizes.isNotEmpty) {
-          // งวดนี้ออกผลแล้ว
           setState(() {
             isRoundClosed = true;
             lottoList = [];
@@ -188,7 +184,6 @@ class _BuyPageState extends State<BuyPage> {
       final data = json.decode(response.body);
 
       if (response.statusCode == 200) {
-        // update wallet
         if (data['wallet_balance'] != null) {
           setState(() {
             walletBalance = (data['wallet_balance'] as num).toDouble();
@@ -201,15 +196,11 @@ class _BuyPageState extends State<BuyPage> {
           });
         }
 
-        // ------------------------
-        // ลบเลขที่ซื้อจาก list ของ lotto page
         setState(() {
           lottoList.removeWhere((l) => l['lotto_id'] == lottoId);
           filteredLottoList.removeWhere((l) => l['lotto_id'] == lottoId);
         });
 
-        // ------------------------
-        // เพิ่มเลขที่ซื้อไป globalSoldNumbers
         setState(() {
           globalSoldNumbers.add(lotto['number']);
         });

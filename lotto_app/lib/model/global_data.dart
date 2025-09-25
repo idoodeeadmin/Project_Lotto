@@ -6,6 +6,7 @@ import 'random_model.dart';
 // Global Prize Numbers
 // ------------------------
 List<Prize> globalPrizeNumbers = [];
+List<Prize> globalPreviousPrizes = [];
 
 // ------------------------
 // Global Customer Data (ถ้าต้องการเก็บ)

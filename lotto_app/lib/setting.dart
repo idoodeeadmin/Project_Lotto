@@ -8,6 +8,7 @@ import 'config.dart';
 import 'dart:convert';
 import 'model/login_model.dart';
 import 'model/global_data.dart';
+import 'ShowallLotto.dart';
 
 class SettingPage extends StatelessWidget {
   final Customer customer;
@@ -45,7 +46,7 @@ class SettingPage extends StatelessWidget {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
 
-        // ✅ ล้าง global state หลัง reset
+        // ล้าง global state หลัง reset
         globalPrizeNumbers = [];
         globalAllNumbers = [];
         globalSoldNumbers = [];
@@ -58,6 +59,61 @@ class SettingPage extends StatelessWidget {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text("รีเซ็ตระบบล้มเหลว")));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error: $e")));
+    }
+  }
+
+  // ฟังก์ชันใหม่สำหรับลบข้อมูลลอตโต้ทั้งหมด
+  Future<void> _resetLottoData(BuildContext context) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("ยืนยันการล้างข้อมูลลอตโต้"),
+        content: const Text(
+          "คุณต้องการลบสลาก, รายการซื้อ และรางวัลทั้งหมดใช่หรือไม่? ข้อมูลลูกค้าจะยังคงอยู่",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("ยกเลิก"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text("ยืนยัน", style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      final response = await http.post(
+        Uri.parse("${AppConfig.apiEndpoint}/reset-lotto"),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+
+        // ล้าง global state ที่เกี่ยวข้อง
+        globalPrizeNumbers = [];
+        globalAllNumbers = [];
+        globalSoldNumbers = [];
+        globalCurrentRound = 1;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(data['message'] ?? "ล้างข้อมูลลอตโต้เรียบร้อยแล้ว"),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("การล้างข้อมูลล้มเหลว")));
       }
     } catch (e) {
       ScaffoldMessenger.of(
@@ -143,6 +199,17 @@ class SettingPage extends StatelessWidget {
                   const SizedBox(height: 20),
 
                   if (customer.role == 'admin') ...[
+                    // ✅ ปุ่มใหม่สำหรับนำทางไปหน้าดูสลากทั้งหมด
+                    _menuItem(context, "ดูสลากทั้งหมด", () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ShowAllLotto(customer: customer),
+                        ),
+                      );
+                    }),
+                    const Divider(height: 1, color: Colors.grey),
+
                     _menuItem(context, "สุ่มออกรางวัล", () {
                       Navigator.push(
                         context,
@@ -157,6 +224,13 @@ class SettingPage extends StatelessWidget {
                       context,
                       "รีเซ็ตระบบ",
                       () => _resetSystem(context),
+                    ),
+                    const Divider(height: 1, color: Colors.grey),
+
+                    _menuItem(
+                      context,
+                      "รีเซ็ตลอตโต้",
+                      () => _resetLottoData(context),
                     ),
                     const Divider(height: 1, color: Colors.grey),
                   ],
