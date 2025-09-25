@@ -41,12 +41,7 @@ class _HomePageState extends State<HomePage> {
         setState(() {
           currentRound = roundRes.round;
         });
-        // ดึงรางวัลงวดปัจจุบันก่อน
         await fetchPrizes(currentRound);
-        // ถ้างวดปัจจุบันยังไม่มีรางวัล ให้ใช้รางวัลงวดก่อนหน้า
-        if (prizeNumbers.isEmpty && currentRound > 1) {
-          await fetchPrizes(currentRound - 1);
-        }
       } else {
         setState(() => isLoading = false);
       }
@@ -142,7 +137,7 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
               Text(
-                'หวยงวดล่าสุด ${currentRound - 1}',
+                'ผลรางวัลหวยงวดล่าสุด',
                 style: const TextStyle(fontSize: 16, color: Colors.white70),
               ),
               const SizedBox(height: 20),

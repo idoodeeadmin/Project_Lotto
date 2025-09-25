@@ -531,16 +531,29 @@ app.post("/reset-system", async (req, res) => {
 // ------------------- โค้ดส่วนที่เหลือ (เหมือนเดิมแต่ปรับปรุง error handling) -------------------
 
 // Current round (next)
+// Current round = ล่าสุดที่ออกรางวัลแล้ว
 app.get("/current-round", async (req, res) => {
+  try {
+    const [rows] = await db.execute("SELECT MAX(round) as maxRound FROM prize");
+    const currentRound = rows[0]?.maxRound || 0;
+    res.json({ round: currentRound });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error fetching current round" });
+  }
+});
+app.get("/next-round", async (req, res) => {
   try {
     const [rows] = await db.execute("SELECT MAX(round) as maxRound FROM lotto");
     const nextRound = (rows[0]?.maxRound || 0) + 1;
     res.json({ round: nextRound });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: "Error fetching current round" });
+    res.status(500).json({ message: "Error fetching next round" });
   }
 });
+
+
 
 // Get prizes for a specific round
 app.get("/prize/:round", async (req, res) => {

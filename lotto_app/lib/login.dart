@@ -153,16 +153,6 @@ class _LoginPageState extends State<LoginPage> {
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     const SizedBox(width: 12),
-                    TextButton(
-                      onPressed: () {},
-                      child: const Text(
-                        'ลืมรหัสผ่าน?',
-                        style: TextStyle(
-                          color: Colors.white,
-                          decoration: TextDecoration.underline,
-                        ),
-                      ),
-                    ),
                     ElevatedButton(
                       onPressed: login,
                       style: ElevatedButton.styleFrom(
