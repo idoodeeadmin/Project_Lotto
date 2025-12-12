@@ -14,10 +14,10 @@ let db;
 
 // ------------------- Database Credentials -------------------
 const dbConfig = {
-  host: "202.28.34.203",
-  user: "mb68_66011212155",
-  password: "uKayQT6Ly2i(",
-  database: "mb68_66011212155",
+  host: "",
+  user: "",
+  password: "",
+  database: "",
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
